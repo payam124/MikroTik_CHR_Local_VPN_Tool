@@ -12,7 +12,6 @@ One of the ideas is to allow Visual Studio Pro residing on a machine within a co
 ## pre-requisites
 
 - Update your Visual Studio 2022
-- Be sure you have an internet connection with 30Mbps+ download speed and 2.5 Mbps+
 - Check your BIOS, and if you have the VTX option, please turn it on
 - Enable Hyper-V on your Windows machine (it should be possible to use VMware and VirtualBox, but I won’t go that direction in this document)
     - run→ appwiz.cpl
