@@ -7,6 +7,29 @@ servers=$AANTPServerPool
 /system clock
 set time-zone-autodetect=no time-zone-name=$AATimeZone
 
+:put "### checking wan interfaces"
+:local WANInterfaces [:toarray $AAWanInterfaces]
+:global AAWanInterfaces [:toarray $AAWanInterfaces]
+:foreach inter in=$WANInterfaces do={
+    :if ([:len [/interface find name=$inter]] = 0) do={
+        :local msg ("$app: interface $inter not found")
+        :log error $msg
+        :terminal style error ; :put $msg ; /terminal style none
+        :error $msg
+    } else={
+        :put ("$app: interface $inter found")
+    }
+}
+
+:if ([:len $AALANInterface] = 0) do={
+    :local msg ("$app: AALANInterface is not set")
+    :log error $msg
+    :terminal style error ; :put $msg ; /terminal style none
+    :error $msg
+} else={
+    :put ("$app: AALANInterface is set to $AALANInterface")
+}
+
 {
 /system identity set name=$AAMikroTikName
 }
@@ -18,8 +41,8 @@ set api disabled=yes
 set api-ssl disabled=yes
 
 
-:do {    /tool/graphing/interface add } on-error={ :put "graph for interfaces exist"}
-
+:do { /tool/graphing/interface add } on-error={ :put "graph for interfaces exist"}
+#Check graphs for resources and avoide 
 :local resourceIds [/tool graphing/resource find where allow-address="0.0.0.0/0"]
 
 :if ([:len $resourceIds] = 0) do={
@@ -39,9 +62,7 @@ set api-ssl disabled=yes
 
 
 :put "### logging"
-
 {
-
     #logging, it is important to persist logs on disk befor any operation
     :log info "$app:setting logging"
     /system logging action set 1 disk-file-count=20
@@ -62,8 +83,6 @@ set api-ssl disabled=yes
         :log info ("Logging action " . $actionName . " updated successfully.")
     }
 
-
-
     :local LoggingRules {{topic="critical";action="disk"};
                         {topic="bridge,debug";action="disk"};
                         {topic="bridge,debug";action="memory"};                        
@@ -74,11 +93,6 @@ set api-ssl disabled=yes
                         {topic="error";action="diskWarnError"};
                         };
     :foreach Rule in=$LoggingRules do={
-        #:put ($Rule->"topic")
-        #:put ($Rule->"action")
-        #:put [:len [/system/logging/find topics=[:toarray ($Rule->"topic")] action=($Rule->"action")]]
-        #:put "delay"
-        #:delay 1
         :do {
 
             :if ( [:len [/system/logging/find topics=[:toarray ($Rule->"topic")] action=($Rule->"action")]] =0 ) do={
@@ -92,26 +106,34 @@ set api-ssl disabled=yes
             :log warning $msg
             :put $msg
         }
-
     }
-   
 }
 
 
 :put "### interface comment"
 #Initial Setup
 /interface ethernet
-set [ find default-name=ether1 ] comment=uplink_WiFi disable-running-check=no
-set [ find default-name=ether2 ] comment=Uplink_Ethernet disable-running-check=no
-set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
+set [ find default-name=$AALANInterface ] comment=PC_LAN disable-running-check=no
+
+#comment for WAN Interfaces (only sequence number)
+#Later it is possible to ask the user to provide mode detailed description for each WAN interface
+{
+    :local counter 0
+    :foreach inter in=$WANInterfaces do={
+        :set $counter ($counter + 1)
+        /interface ethernet set [find name=$inter] comment=("uplink_".$counter) disable-running-check=no
+    }
+}
+
 
 :put "### add ip address"
 # Define the IP addresses and their corresponding interfaces
 
+#Create dictionary if IP-> Interface and add them through a loop
 :local ipAddresses [:toarray ""]
 :set ($ipAddresses->"127.0.0.1/24") "lo";
-:set ($ipAddresses->$AALanIPMT) "ether3";
-
+#Add IP address of the LAN interface to to the dictioonary
+:set ($ipAddresses->$AALanIPMT) $AALANInterface;
 
 # Loop through the IP addresses and add them to the interfaces if not already assigned
 :foreach ip,interface in=$ipAddresses do={
@@ -127,18 +149,16 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     }
 }
 
-#remove unknown interface lists membes
-/interface list member remove [find where interface~"\\*"]
 
 :put "### add dhcp client list"
-#this stage with default gw, and DNS but later to be removed
-# Define the interfaces for DHCP clients
-:local dhcpInterfaces {"ether1"; "ether2"}
+#this stage with default gw and DNS as we need connectivity, but later to be removed
+#Define the interfaces for DHCP clients (WAN Interfaces)
+:local dhcpInterfaces $WANInterfaces
 
 # Loop through the interfaces and add DHCP clients if not already configured
 :foreach Dinterface in=$dhcpInterfaces do={
     :if ([:len [/ip dhcp-client find where interface=$Dinterface]] = 0) do={
-        :local msg ("Adding DHCP client to interface " . $interfacDinterface)
+        :local msg ("Adding DHCP client to interface " . $Dinterface)
         :log info $msg
         :put $msg
         /ip dhcp-client add interface=$Dinterface
@@ -150,21 +170,12 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
 }
 
 
-
-
-# wnat nat interaca list
-# DNS interface list
-# allow stablisehd related input, forward
-# allow DNS local
-# nlock other DNS
-# activate remote request DNS, explicity add 1.1.1.1, 99.9.
-## disable DNS by DHCP
-## Possibly we may not need default rooute frm DHCP servers 
-
-#/ip dns
-#set allow-remote-requests=yes servers=1.1.1.1,9.9.9.9
-
 :put "### add inteface lists"
+
+#remove unknown interface lists membes
+#in case a VPN interface has been already removed or any other non-permanent interface got changed and caused the interface list to be invalid
+/interface list member remove [find where interface~"\\*"]
+
 :local interfaceLists {"WAN_NAT"; "DNS_ALLOW"}
 
 # Loop through the list and create only if it doesn't exist
@@ -177,12 +188,11 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     }
 }
 
-
 # Define the interfaces and their corresponding lists
-:local interfaceMembers {
-    "ether1"="WAN_NAT";
-    "ether2"="WAN_NAT";
-    "ether3"="DNS_ALLOW"
+:local interfaceMembers [:toarray ""]
+:set ($interfaceMembers->$AALANInterface) "DNS_ALLOW"
+:foreach inter in=$WANInterfaces do={
+    :set ($interfaceMembers->$inter) "WAN_NAT"
 }
 
 # Loop through the interfaces and add them to the lists if not already a member
@@ -214,15 +224,11 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     :put $msg
 }
 
-
 :put "### allow DNS qury"
 /ip dns set allow-remote-requests=yes
 
-
+#TODO, later make the VPNs flexible
 :put "### setup VPNS"
-# Setup VPNs
-#contiue
-# DONT FORGET‌PASSWORD
 # Check if the SSTP VPN client exists, and add it if it doesn't
 :if ([:len [/interface sstp-client find where name="$AAVPNSSTPName"]] = 0) do={
     :local msg "Adding SSTP VPN client with name $AAVPNSSTPName" 
@@ -248,8 +254,11 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     :put $msg    
 }
 
+#TODO, check the status of VPN for a few times, 
+#also lookup the log in case of failures
 :put "waiting for VPN to be up"
 :delay 3
+
 # Define the VPN interfaces and their corresponding lists
 :local vpnInterfaceMembers [:toarray ""]
 :set ($vpnInterfaceMembers->$AAVPNSSTPName) "WAN_NAT"
@@ -293,7 +302,16 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
 {
    :local app "App_set_PBR_v0.84"
    :log debug "$app:started"
-   :local interfaces {"$AAPrivateVPNOvpnName";"ether1";"ether2";"ether3";"$AAVPNSSTPName"}
+   #:local interfaces {"$AAPrivateVPNOvpnName";"ether1";"ether2";"ether3";"$AAVPNSSTPName"}
+   :local interfaces {"$AAPrivateVPNOvpnName";}
+   :foreach inter in=$WANInterfaces do={
+        :set $interfaces ($interfaces ,  $inter)
+   }
+   #add LAN direct interface
+   :set $interfaces ($interfaces ,  $AALANInterface)
+   #add international VPN interface
+   :set $interfaces ($interfaces ,  $AAVPNSSTPName)
+
    #:local interfaces {"ether1_X";"ether2_Y"}
    #:local interfaces {"pppoe-out-bell";"ether3_ROGERS"}
    :local commentTag "#MLK#PBR#"
@@ -434,10 +452,7 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
 
    :foreach interface in=$interfaces do={
       :log debug "$app:$interface"
-      #:local foundInterface  [ :len [/interface find name=$interface] ]
       :local foundInterface  [ :len [/interface find name=$interface] ]
-      #:set foundInterface :len [/interface find name=$interface]
-      #:put $foundInterface
       :log debug "$app: number of interfaces found equal to $interface: $foundInterface"
       :if ($foundInterface=0) do={
          :log error "$app:interface $interface does not exist"
@@ -462,50 +477,60 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
 :put "### exclude local lan from pbr"
 /ip firewall address-list add address=$AALANNetMT comment="#MLK#PBR#Destinations Excluded from PBR#" list=MLK-DESTEXC
 
-
-
-
  :put "### setup backup route for ethernet uplinks"
- 
  # Backup routes for both ether1 and ehter2 in case one dos not work
  #first remove existing
-/ip route remove  [find comment ~ "#MLK#PBR#ether.#backup_ether"]
-#add
-/ip route add check-gateway=ping  disabled=yes distance=2 dst-address=0.0.0.0/0 gateway=ether2 routing-table=MLK-RM-TO-ether1 scope=30 suppress-hw-offload=no target-scope=10 comment=#MLK#PBR#ether2#backup_ether1
-/ip route add check-gateway=ping  disabled=yes distance=2 dst-address=0.0.0.0/0 gateway=ether1 routing-table=MLK-RM-TO-ether2 scope=30 suppress-hw-offload=no target-scope=10 comment=#MLK#PBR#ether1#backup_ether2
+ :foreach inter in=$WANInterfaces do={
+    /ip route remove [find comment ~ "#MLK#PBR#$inter#backup_"]
+    #:put "#MLK#PBR#$inter#backup_ether"
+ }
+
+
+:if ([:len $WANInterfaces] > 1) do={
+    :for counter from=0 to=([:len $WANInterfaces]-1) do={
+        :local nextInterface ($WANInterfaces->(($counter+1)%[:len $WANInterfaces]))
+        :local curInterface ($WANInterfaces->($counter))
+        :local rtable ("MLK-RM-TO-".$curInterface)
+        :local commentTag ("#MLK#PBR#".$nextInterface."#backup_".$curInterface)
+        /ip route add check-gateway=ping  disabled=yes distance=2 dst-address=0.0.0.0/0 gateway=$nextInterface routing-table=$rtable scope=30 suppress-hw-offload=no target-scope=10 comment=$commentTag
+    }
+} 
+
 /ip route set check-gateway=ping [find comment ~ "#MLK#PBR#ether"]
- 
- :put "### set gateway for related route"
+
+:put "### set gateway for related route" 
+:foreach inter in=$WANInterfaces do={
  /ip dhcp-client set  script=":if (\$bound = 1 ) do={\
-    \n   /ip route set disabled=no gateway= \$\"gateway-address\" [find comment~ \"^#MLK#PBR#ether1#\"]\
+    \n   /ip route set disabled=no gateway= \$\"gateway-address\" [find comment~ \"^#MLK#PBR#$inter#\"]\
     \n}\
-    \n" use-peer-dns=no [find interface=ether1]
-:put "### set gateway for related route"
- /ip dhcp-client set  script=":if (\$bound = 1 ) do={\
-    \n   /ip route set disabled=no gateway= \$\"gateway-address\" [find comment~ \"^#MLK#PBR#ether2#\"]\
-    \n}\
-    \n" use-peer-dns=no [find interface=ether2]
+    \n" use-peer-dns=no [find interface=$inter]
+}
 
 
 # Check if the route exists, and add it if it doesn't
-:if ([:len [/ip route find where dst-address="0.0.0.0/0" && gateway="ether1" && routing-table=main ]] = 0) do={
-    :local msg "Adding default route with gateway ether1"
-    :log info $msg
-    :put $msg
+/ip route remove [find comment ="default_route_handle_no_active_route"]
+:foreach inter in=$WANInterfaces do={
+    :if ([:len [/ip route find where dst-address="0.0.0.0/0" && gateway=$inter && routing-table=main ]] = 0) do={
+        :local msg "Adding default route with gateway $inter"
+        :log info $msg
+        :put $msg
 
-    /ip route add comment=default_route_handle_no_active_route disabled=no distance=100 dst-address=0.0.0.0/0 gateway=ether1 routing-table=main scope=30 suppress-hw-offload=no target-scope=10
-} else={
-    :local msg "Default route with gateway ether1 already exists"
-    :log warning $msg
-    /terminal style error ; :put $msg ; /terminal style none
+        /ip route add comment=default_route_handle_no_active_route disabled=no distance=100 dst-address=0.0.0.0/0 gateway=$inter routing-table=main scope=30 suppress-hw-offload=no target-scope=10
+    } else={
+        :local msg "Default route with gateway $inter already exists"
+        :log warning $msg
+        /terminal style error ; :put $msg ; /terminal style none
+    }
+
 }
+
 
 :put "### Enabl PBR for VPNS"
 /ip route set disabled=no [find comment~"#MLK#PBR#V_"]
 
-#activate 
-/ip dhcp-client release ether1 
-/ip dhcp-client release ether2
+:foreach inter in=$WANInterfaces do={
+    /ip dhcp-client release $inter
+}
 
 #for place before
 :delay 1
@@ -551,6 +576,11 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     :do { /ip dns static add name=dns.nextdns.io address=2a07:a8c0:: type=AAAA } on-error {:put "static record for next dns exist"}
     :do { /ip dns static add name=dns.nextdns.io address=2a07:a8c1:: type=AAAA } on-error {:put "static record for next dns exist"}
     /ip dns set use-doh-server=("https://dns.nextdns.io/".$AANextDNSID)
+} else={
+    :put "### remove nextdns static DNS"
+    /ip dns static remove [find name="dns.nextdns.io"]
+    /ip dns set use-doh-server=""
+    /ip dns set servers=$AANNormalDNS
 }
     
 
@@ -580,8 +610,10 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
 }
 
 :put "### disable default route and DNS from dhcp client"
-/ip dhcp-client set add-default-route=no use-peer-dns=no [find interface =ether1]
-/ip dhcp-client set add-default-route=no use-peer-dns=no [find interface =ether2]
+:foreach inter in=$WANInterfaces do={
+    /ip dhcp-client set add-default-route=no use-peer-dns=no [find interface=$inter]
+}
+
 #denable default route for SSTP
 /interface/sstp-client/set add-default-route=yes [find name=$AAVPNSSTPName]
 
@@ -628,8 +660,6 @@ set [ find default-name=ether3 ] comment=PC_LAN disable-running-check=no
     add interval=15s name=reset_dns_cache_filtered_ip on-event=filtered_dns_flush policy=\
         ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon
     } on-error={:put "scheduler for reset dns cache exist"}
-
 }
-
 
 }
