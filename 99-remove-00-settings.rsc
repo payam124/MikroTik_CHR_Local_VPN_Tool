@@ -17,6 +17,7 @@
 :if ([:len [/system/script/environment find name="AAPrivateVPNOvpnName"]] > 0) do={ /system/script/environment remove [find name="AAPrivateVPNOvpnName"] }
 :if ([:len [/system/script/environment find name="AAEnableNextDNS"]] > 0) do={ /system/script/environment remove [find name="AAEnableNextDNS"] }
 :if ([:len [/system/script/environment find name="AANextDNSID"]] > 0) do={ /system/script/environment remove [find name="AANextDNSID"] }
+:if ([:len [/system/script/environment find name="AANNormalDNS"]] > 0) do={ /system/script/environment remove [find name="AANNormalDNS"] }
 :if ([:len [/system/script/environment find name="AAWinboxPort"]] > 0) do={ /system/script/environment remove [find name="AAWinboxPort"] }
 :if ([:len [/system/script/environment find name="AASSHPort"]] > 0) do={ /system/script/environment remove [find name="AASSHPort"] }
 :if ([:len [/system/script/environment find name="AANTPServerPool"]] > 0) do={ /system/script/environment remove [find name="AANTPServerPool"] }
@@ -31,3 +32,5 @@
 :if ([:len [/system/script/environment find name="AADNSPrivateServerGW"]] > 0) do={ /system/script/environment remove [find name="AADNSPrivateServerGW"] }
 :if ([:len [/system/script/environment find name="AADNSCacheWatcherEnabled"]] > 0) do={ /system/script/environment remove [find name="AADNSCacheWatcherEnabled"] }
 :if ([:len [/system/script/environment find name="AADNSCacheWatcherRegex"]] > 0) do={ /system/script/environment remove [find name="AADNSCacheWatcherRegex"] }
+:if ([:len [/system/script/environment find name="AAWanInterfaces"]] > 0) do={ /system/script/environment remove [find name="AAWanInterfaces"] }
+:if ([:len [/system/script/environment find name="AALANInterface"]] > 0) do={ /system/script/environment remove [find name="AALANInterface"] }
